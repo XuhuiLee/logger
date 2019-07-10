@@ -9,7 +9,7 @@ import java.util.TimeZone;
  * 工具类，不允许继承
  * Created by lixuhui on 2017/8/14.
  */
-abstract class InnerUtil {
+final class InnerUtil {
     private static final TimeZone TIME_ZONE = TimeZone.getTimeZone("CTT");
     private static final Locale LOCALE = Locale.CHINA;
 
