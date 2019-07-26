@@ -20,8 +20,14 @@ public final class LoggerFactory {
      */
     private static final boolean STDOUT;
 
+    /**
+     * 每个logger每次仅打印有限数量，避免阻塞其他logger
+     */
     private static final int PRINT_SIZE;
 
+    /**
+     * 队列内内容超过一定数量将清理，避免日志积压
+     */
     private static final int CLEAR_THRESHOLD;
 
     /**
