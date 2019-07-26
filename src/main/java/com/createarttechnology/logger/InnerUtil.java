@@ -21,15 +21,15 @@ final class InnerUtil {
     /**
      * 直接输出日志到控制台
      */
-    static void log(String s) {
+    static void info(String s) {
         System.out.print(s);
     }
 
     /**
      * 内部出错时输出到控制台
      */
-    static void log(String s, Throwable t) {
-        System.out.println("InnerUtil\t" + buildTimeString(getTimestamp()) + s);
+    static void error(String s, Throwable t) {
+        System.out.println("InnerUtil\t" + buildTimeString(getTimestamp()) + "\t" + s);
         t.printStackTrace(System.err);
     }
 
@@ -66,7 +66,7 @@ final class InnerUtil {
     }
 
     /**
-     * 获取格式化时间字符串，YYYY-MM-DD\tHH:mm:ss.SSS
+     * 获取格式化时间字符串，YYYY-MM-DD HH:mm:ss.SSS
      */
     static String buildTimeString(long timestamp) {
         Calendar calendar = Calendar.getInstance(TIME_ZONE, LOCALE);
@@ -144,6 +144,7 @@ final class InnerUtil {
         StringBuilder sb = new StringBuilder(size);
         String message = item.getMessage();
         Object[] args = item.getArgArray();
+
         int argIndex = 0;
         int tokenIndex = 0;
         int lastTokenIndex = 0;
@@ -156,7 +157,7 @@ final class InnerUtil {
             if (throwable == null) {
                 sb.append(message);
             } else {
-                sb.append(message).append('\n').append(buildThrowableMessage(item.getThrowable()));
+                sb.append(message).append('\n').append(buildThrowableMessage(throwable));
             }
             return sb.toString();
         }
@@ -172,7 +173,7 @@ final class InnerUtil {
             sb.append(message.substring(lastTokenIndex));
         }
         if (throwable != null) {
-            sb.append('\n').append(buildThrowableMessage(item.getThrowable()));
+            sb.append('\n').append(buildThrowableMessage(throwable));
         }
         return sb.toString();
     }

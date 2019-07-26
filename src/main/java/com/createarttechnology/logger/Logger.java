@@ -1,38 +1,34 @@
 package com.createarttechnology.logger;
 
 import java.io.*;
-import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.concurrent.atomic.LongAdder;
 
 /**
  * 日志记录类
  * Created by lixuhui on 2017/8/14.
  */
-public class Logger {
+public final class Logger {
 
     /**
      * 日志等级
      */
-    private Level level;
-
-    /**
-     * 日志路径
-     */
-    private String path;
+    private final Level level;
 
     /**
      * 缓冲队列，在concurrent包中
      */
-    private LinkedBlockingQueue<LogItem> logQueue = new LinkedBlockingQueue<LogItem>(50000);
+    private final ConcurrentLinkedQueue<LogItem> logQueue = new ConcurrentLinkedQueue<LogItem>();
 
     /**
      * 日志名，不包括日期
      */
-    private String name;
+    private final String name;
 
     /**
      * 异常数目统计
      */
-    private int exceptionCount;
+    private final LongAdder exceptionCount = new LongAdder();
 
     /**
      * 日志文件大小
@@ -40,29 +36,22 @@ public class Logger {
     private long size;
 
     /**
-     * 日志显示level
-     */
-    private boolean showLevel;
-
-    /**
-     * 日志显示时间
-     */
-    private boolean showTime;
-
-    /**
      * 日志标准输出
      */
-    private boolean stdout;
+    private final boolean stdout;
+
+    private final int printSize;
+
+    private final int clearThreshold;
 
     private static final Logger ALL_EXCEPTION = LoggerFactory.getLogger("_AllException");
 
-    Logger(String name, Level level, boolean showTime, boolean showLevel, boolean stdout) {
+    Logger(String name, Level level, boolean stdout, int printSize, int clearThreshold) {
         this.name = name;
         this.level = level;
-        this.showTime = showTime;
-        this.showLevel = showLevel;
-        this.path = name;
         this.stdout = stdout;
+        this.printSize = printSize;
+        this.clearThreshold = clearThreshold;
     }
 
     /**
@@ -91,14 +80,14 @@ public class Logger {
      * 统一入队方法
      */
     private void logWithoutCheckLevel(LogItem item) {
-        if (item.getThrowable() != null) {  // 把所有异常记录到_AllException中
-            exceptionCount++;
-            ALL_EXCEPTION.error(buildLogString(item));
+        if (item.getThrowable() != null && !this.equals(ALL_EXCEPTION)) {  // 把所有异常记录到_AllException中
+            exceptionCount.increment();
+            ALL_EXCEPTION.error(name + '\t' + buildLogString(item));
         }
         boolean success = logQueue.offer(item);
         if (!success) {
-            exceptionCount++;
-            InnerUtil.log("InnerUtil\tlogQueue.offer failed, may be touch MAX_LOG_QUEUE_SIZE 50000, queueCount=" + getQueueCount());
+            exceptionCount.increment();
+            InnerUtil.info("InnerUtil\tlogQueue.offer failed, may be full, queueCount=" + getQueueCount());
         }
     }
 
@@ -120,21 +109,32 @@ public class Logger {
         }
         BufferedWriter bw = new BufferedWriter(new OutputStreamWriter(new FileOutputStream(logFile, true)));
         try {
-            while (!logQueue.isEmpty()) {
-                final LogItem item = logQueue.poll();
-                String logString = buildLogString(item);
-                try {
-                    bw.write(logString);
-                } catch (Exception e) {
-                    InnerUtil.log("Logger doWriteLog bw.write", e);
+            synchronized (this) {
+                int i = 0;
+                // 每次最多打印100条避免日志过多阻塞其他logger
+                while (!logQueue.isEmpty() && i++ < printSize) {
+                    final LogItem item = logQueue.poll();
+                    String logString = buildLogString(item);
+                    try {
+                        bw.write(logString);
+                    } catch (Exception e) {
+                        InnerUtil.error("Logger doWriteLog bw.write", e);
+                    }
+                    long fileSize = logFile.length();
+                    if (fileSize < size) {
+                        // 说明是新一天的日志文件了，exceptionCount清空
+                        exceptionCount.reset();
+                    }
+                    this.size = fileSize;
+                    if (stdout) {
+                        InnerUtil.info(name + '\t' + logString);
+                    }
                 }
-                long fileSize = logFile.length();
-                if (fileSize < size) {  // 说明是新一天的日志文件了，exceptionCount清空
-                    exceptionCount = 0;
-                }
-                this.size = fileSize;
-                if (stdout) {
-                    InnerUtil.log(logString);
+                // 避免日志积压过多
+                if (logQueue.size() > clearThreshold) {
+                    exceptionCount.increment();
+                    ALL_EXCEPTION.info("logQueue clear, name={}, size={}", name, getQueueCount());
+                    logQueue.clear();
                 }
             }
         } finally {
@@ -142,7 +142,8 @@ public class Logger {
                 bw.flush();
                 bw.close();
             } catch (IOException e) {
-                InnerUtil.log("Logger doWriteLog bw.flush, bw.close", e);
+                exceptionCount.increment();
+                InnerUtil.error("Logger doWriteLog bw.flush, bw.close", e);
             }
         }
     }
@@ -154,13 +155,9 @@ public class Logger {
         int size = item.getThrowable() == null ? 128 : 2048;
         StringBuilder sb = new StringBuilder(size);
 
-        sb.append(name).append("\t");
-
-        if (showTime) sb.append(InnerUtil.buildTimeString(item.getTime())).append("\t");
-
-        if (showLevel) sb.append(item.getLevel().name()).append("\t");
-
-        sb.append(InnerUtil.buildMessage(item)).append("\n");
+        sb.append(InnerUtil.buildTimeString(item.getTime())).append('\t')
+                .append(item.getLevel().name()).append("\t")
+                .append(InnerUtil.buildMessage(item)).append("\n");
 
         return sb.toString();
     }
@@ -252,56 +249,8 @@ public class Logger {
         return name;
     }
 
-    public void setName(String name) {
-        this.name = name;
-    }
-
-    public String getPath() {
-        return path;
-    }
-
-    public void setPath(String path) {
-        this.path = path;
-    }
-
-    public Level getLevel() {
-        return level;
-    }
-
-    public void setLevel(Level level) {
-        this.level = level;
-    }
-
-    public boolean isShowTime() {
-        return showTime;
-    }
-
-    public void setShowTime(boolean showTime) {
-        this.showTime = showTime;
-    }
-
-    public boolean isShowLevel() {
-        return showLevel;
-    }
-
-    public void setShowLevel(boolean showLevel) {
-        this.showLevel = showLevel;
-    }
-
-    public boolean isStdout() {
-        return stdout;
-    }
-
-    public void setStdout(boolean stdout) {
-        this.stdout = stdout;
-    }
-
-    public int getExceptionCount() {
-        return exceptionCount;
-    }
-
-    public void setExceptionCount(int exceptionCount) {
-        this.exceptionCount = exceptionCount;
+    public long getExceptionCount() {
+        return exceptionCount.longValue();
     }
 
     public int getLogQueueSize() {

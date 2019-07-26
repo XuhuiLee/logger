@@ -17,15 +17,13 @@ final class LogItem {
     private Throwable throwable;
 
     LogItem(Level level, String message, Object[] argArray) {
-
         this.level = level;
-
+        this.time = InnerUtil.getTimestamp();
         if (message != null && message.trim().length() > 1) {
             this.message = message;
         }
 
-        this.time = InnerUtil.getTimestamp();
-
+        // 取出最后一个，作为throwable
         if (argArray != null && argArray.length > 0) {
             Object lastObject = argArray[argArray.length - 1];
             if (lastObject != null && lastObject instanceof Throwable) {

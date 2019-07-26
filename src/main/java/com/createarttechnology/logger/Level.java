@@ -3,7 +3,7 @@ package com.createarttechnology.logger;
 /**
  * Created by lixuhui on 2018/2/7.
  */
-public enum  Level {
+enum Level {
     TRACE(0),
     DEBUG(10),
     INFO(20),
@@ -17,7 +17,7 @@ public enum  Level {
         this.value = value;
     }
 
-    public int getValue() {
+    int getValue() {
         return value;
     }
 }

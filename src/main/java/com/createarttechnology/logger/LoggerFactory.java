@@ -1,5 +1,6 @@
 package com.createarttechnology.logger;
 
+import java.io.IOException;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -7,27 +8,21 @@ import java.util.concurrent.ConcurrentHashMap;
  * 日志工厂类
  * Created by lixuhui on 2017/8/14.
  */
-public class LoggerFactory {
+public final class LoggerFactory {
 
     /**
      * 默认日志等级
      */
-    private static Level DEFAULT_LEVEL = Level.INFO;
+    private static final Level LEVEL;
 
     /**
-     * 默认显示时间
+     * 输出到控制台
      */
-    private static boolean DEFAULT_SHOW_TIME = true;
+    private static final boolean STDOUT;
 
-    /**
-     * 默认显示等级
-     */
-    private static boolean DEFAULT_SHOW_LEVEL = true;
+    private static final int PRINT_SIZE;
 
-    /**
-     * 默认使用控制台输出
-     */
-    private static boolean DEFAULT_STDOUT = true;
+    private static final int CLEAR_THRESHOLD;
 
     /**
      * 所有日志放在ConcurrentHashMap中
@@ -40,8 +35,51 @@ public class LoggerFactory {
     private LoggerFactory() {}
 
     static {
+        try {
+            System.getProperties().load(LoggerFactory.class.getResourceAsStream("/logger.properties"));
+        } catch (IOException e) {
+            InnerUtil.error("LoggerFactory static System.getProperties().load", e);
+        }
+
+        String levelStr = System.getProperty("logger.properties.level", "INFO");
+        Level level = Level.INFO;
+        if (levelStr != null) {
+            try {
+                level = Level.valueOf(levelStr.toUpperCase());
+            } catch (IllegalArgumentException e) {
+                InnerUtil.error("LoggerFactory static level Level.valueOf", e);
+            }
+        }
+        LEVEL = level;
+
+        String stdoutStr = System.getProperty("logger.properties.stdout", "false");
+        STDOUT = Boolean.valueOf(stdoutStr);
+
+        String printSizeStr = System.getProperty("logger.properties.printSize", "100");
+        int printSize = 100;
+        try {
+            printSize = Integer.valueOf(printSizeStr);
+        } catch (NumberFormatException e) {
+            InnerUtil.error("LoggerFactory static PRINT_SIZE Level.valueOf", e);
+        }
+        PRINT_SIZE = printSize;
+
+        String clearThresholdStr = System.getProperty("logger.properties.clearThreshold", "100");
+        int clearThreshold = 100;
+        try {
+            clearThreshold = Integer.valueOf(clearThresholdStr);
+        } catch (NumberFormatException e) {
+            InnerUtil.error("LoggerFactory static CLEAR_THRESHOLD Level.valueOf", e);
+        }
+        CLEAR_THRESHOLD = clearThreshold;
+
+        String configInfo = String.format("LoggerFactory\t%s\tINFO\t[level:%s, stdout:%b, printSize:%d, clearThreshold:%d]\n",
+                InnerUtil.buildTimeString(System.currentTimeMillis()),
+                LEVEL, STDOUT, PRINT_SIZE, CLEAR_THRESHOLD);
+
+        InnerUtil.info(configInfo);
+
         final LogWorkThread logWorkThread = new LogWorkThread();
-        logWorkThread.setDaemon(true);
         logWorkThread.start();
         //注册退出功能
         Runtime.getRuntime().addShutdownHook(new Thread(new Runnable() {
@@ -57,38 +95,16 @@ public class LoggerFactory {
     static Logger getLogger(String name) {
         Logger logger = LOGGERS.get(name);
         if (logger == null) {
-            logger = new Logger(name, DEFAULT_LEVEL, DEFAULT_SHOW_TIME, DEFAULT_SHOW_LEVEL, DEFAULT_STDOUT);
-            LOGGERS.putIfAbsent(name, logger);
+            synchronized (LoggerFactory.class) {
+                logger = new Logger(name, LEVEL, STDOUT, PRINT_SIZE, CLEAR_THRESHOLD);
+                LOGGERS.putIfAbsent(name, logger);
+            }
         }
         return logger;
     }
 
     static Logger getLogger(Class clazz) {
         return getLogger(clazz.getSimpleName());
-    }
-
-    public static Level getDefaultLevel() {
-        return DEFAULT_LEVEL;
-    }
-
-    public static void setDefaultLevel(Level defaultLevel) {
-        DEFAULT_LEVEL = defaultLevel;
-    }
-
-    public static boolean isDefaultShowTime() {
-        return DEFAULT_SHOW_TIME;
-    }
-
-    public static void setDefaultShowTime(boolean defaultShowTime) {
-        DEFAULT_SHOW_TIME = defaultShowTime;
-    }
-
-    public static boolean isDefaultShowLevel() {
-        return DEFAULT_SHOW_LEVEL;
-    }
-
-    public static void setDefaultShowLevel(boolean defaultShowLevel) {
-        DEFAULT_SHOW_LEVEL = defaultShowLevel;
     }
 
     /**
@@ -99,7 +115,7 @@ public class LoggerFactory {
         return Collections.unmodifiableMap(LOGGERS);
     }
 
-    public static class LogWorkThread extends Thread {
+    static class LogWorkThread extends Thread {
 
         private int INTERVAL = 500;
 
@@ -114,26 +130,17 @@ public class LoggerFactory {
                 try {
                     sleep(INTERVAL);
                 } catch (Exception e) {
+                    InnerUtil.error("LogWorkThread run sleep", e);
+                    Thread.currentThread().interrupt();
                 }
 
                 Map<String, Logger> loggers = LoggerFactory.getLoggers();
-                List<Logger> loggerList = new LinkedList<Logger>();
-                for (String key : loggers.keySet()) {
-                    loggerList.add(loggers.get(key));
-                }
-                Collections.sort(loggerList, new Comparator<Logger>() {
-                    public int compare(Logger logger1, Logger logger2) {
-                        if (logger1.getQueueCount() > logger2.getQueueCount()) return 1;
-                        else if (logger1.getQueueCount() < logger2.getQueueCount()) return -1;
-                        else return 0;
-                    }
-                });
-                for (Logger logger : loggerList) {
+                for (Logger logger : loggers.values()) {
                     if (logger.getLogQueueSize() > 0) {
                         try {
                             logger.doWriteLog();
                         } catch (Exception e) {
-                            InnerUtil.log("LogWorkThread run logger.doWriteLog", e);
+                            InnerUtil.error("LogWorkThread run logger.doWriteLog", e);
                         }
                     }
                 }
